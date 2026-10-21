@@ -1,0 +1,1092 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { ConsultationComplaint } from '../entities/consultation-complaint.entity';
+import {
+  Consultation,
+  ConsultationCancelReasonType,
+} from '../entities/consultation.entity';
+import {
+  ConsultationActionMeta,
+  ConsultationActionType,
+  ConsultationDiagnosisSummary,
+  Message,
+} from '../entities/message.entity';
+import { Doctor } from '../entities/doctor.entity';
+import { User, UserRole } from '../entities/user.entity';
+import { KnowledgeIndexerService } from '../ai/knowledge-indexer.service';
+import { DoctorPatientAccessService } from '../doctor-patient-access/doctor-patient-access.service';
+import { PushNotificationsService } from '../push-notifications/push-notifications.service';
+import { PointsService } from '../points/points.service';
+import { PointPricingService } from '../points/point-pricing.service';
+import { doctorPaymentDetailsForPatient } from '../doctors/doctor-payment-details';
+import { resolveDoctorFee } from '../doctors/doctor-fees';
+import { PresenceGateway } from '../presence/presence.gateway';
+import { DiagnosisService } from '../diagnosis/diagnosis.service';
+import { UsersService } from '../users/users.service';
+import {
+  clampConsultationPrice,
+  CONSULTATION_POINT_COST,
+} from '../points/message-price.constants';
+import {
+  type RequestLike,
+  resolveConsultationCountry,
+} from '../common/request-country';
+import { DocumentType } from '../entities/medical-document.entity';
+import { PatientProfile } from '../entities/patient-profile.entity';
+import {
+  CancelConsultationDto,
+  EndConsultationDto,
+  StartConsultationDto,
+} from './dto/consultation.dto';
+
+@Injectable()
+export class ConsultationsService {
+  constructor(
+    @InjectRepository(Consultation)
+    private consultationRepo: Repository<Consultation>,
+    @InjectRepository(ConsultationComplaint)
+    private complaintRepo: Repository<ConsultationComplaint>,
+    @InjectRepository(Doctor) private doctorRepo: Repository<Doctor>,
+    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(PatientProfile)
+    private patientProfileRepo: Repository<PatientProfile>,
+    @InjectRepository(Message) private messageRepo: Repository<Message>,
+    private points: PointsService,
+    private pointPricing: PointPricingService,
+    private presence: PresenceGateway,
+    private diagnosis: DiagnosisService,
+    private users: UsersService,
+    private knowledgeIndexer: KnowledgeIndexerService,
+    private doctorPatientAccess: DoctorPatientAccessService,
+    private pushNotifications: PushNotificationsService,
+  ) {}
+
+  private scheduleIndexConsultation(consultationId: string): void {
+    void this.knowledgeIndexer
+      .indexConsultation(consultationId)
+      .catch(() => undefined);
+  }
+
+  private mapMessage(row: Message) {
+    return {
+      id: row.id,
+      type: row.type,
+      content: row.content,
+      creator: row.creator,
+      recipient: row.recipient,
+      datetime: row.datetime,
+      attachment_url: row.attachment_url,
+      attachment_meta: row.attachment_meta,
+      read_at: row.read_at,
+      edited_at: row.edited_at,
+    };
+  }
+
+  /** Post a consultation_action chat message from `creator` to `recipient` and push it live. */
+  private async postActionMessage(
+    creator: string,
+    recipient: string,
+    content: string,
+    meta: ConsultationActionMeta,
+    opts?: { alwaysPush?: boolean; notifyBody?: string },
+  ) {
+    const created = this.messageRepo.create({
+      type: 'consultation_action',
+      content,
+      creator,
+      recipient,
+      attachment_url: null,
+      attachment_meta: meta,
+    });
+    const saved = await this.messageRepo.save(created);
+    const mapped = this.mapMessage(saved);
+    this.presence.emitToUser(recipient, 'message:new', {
+      message: mapped,
+      peer_id: creator,
+    });
+    this.presence.emitToUser(creator, 'message:new', {
+      message: mapped,
+      peer_id: recipient,
+    });
+
+    // Socket only reaches an open app. This also files the in-app notification
+    // and pushes to the device when the recipient is away.
+    void this.notifyRecipient(
+      creator,
+      recipient,
+      mapped.id,
+      opts?.notifyBody ?? content,
+      opts,
+    ).catch(() => undefined);
+
+    return mapped;
+  }
+
+  /**
+   * Starting a consultation (text request, video call, or accept) implies the
+   * patient allows the doctor to view their medical records for that visit.
+   */
+  private async grantRecordsForConsultation(
+    patientUserId: string,
+    doctorUserId: string,
+  ): Promise<void> {
+    try {
+      const doctor =
+        await this.doctorPatientAccess.resolveDoctorFromUserId(doctorUserId);
+      const existing = await this.doctorPatientAccess.findOrCreate(
+        patientUserId,
+        doctor.id,
+      );
+      const wasGranted = existing.records_allowed;
+
+      const status = await this.doctorPatientAccess.applyAccessAction(
+        patientUserId,
+        doctorUserId,
+        'grant_records',
+      );
+
+      if (!wasGranted) {
+        const created = this.messageRepo.create({
+          type: 'access_action',
+          content: DoctorPatientAccessService.accessActionLabel('grant_records'),
+          creator: patientUserId,
+          recipient: doctorUserId,
+          attachment_url: null,
+          attachment_meta: { action: 'grant_records' },
+        });
+        const saved = await this.messageRepo.save(created);
+        const mapped = this.mapMessage(saved);
+        this.presence.emitToUser(doctorUserId, 'message:new', {
+          message: mapped,
+          peer_id: patientUserId,
+        });
+        this.presence.emitToUser(patientUserId, 'message:new', {
+          message: mapped,
+          peer_id: doctorUserId,
+        });
+      }
+
+      this.presence.emitToUser(doctorUserId, 'access:updated', {
+        status,
+        peer_id: patientUserId,
+      });
+      this.presence.emitToUser(patientUserId, 'access:updated', {
+        status,
+        peer_id: doctorUserId,
+      });
+    } catch {
+      // Blocked chat or invalid pair — consultation / call still stands.
+    }
+  }
+
+  private async notifyRecipient(
+    senderId: string,
+    recipientId: string,
+    messageId: string,
+    body: string,
+    opts?: { alwaysPush?: boolean },
+  ): Promise<void> {
+    if (senderId === recipientId) return;
+    const senderName = await this.users.getDisplayName(senderId);
+    await this.pushNotifications.sendChatMessage(
+      {
+        recipientId,
+        chatId: senderId,
+        messageId,
+        senderId,
+        senderName,
+        body,
+      },
+      opts,
+    );
+  }
+
+  private mapConsultation(c: Consultation) {
+    return {
+      id: c.id,
+      patient_id: c.patient_id,
+      doctor_id: c.doctor_id,
+      status: c.status,
+      description: c.description,
+      reserved_points: c.reserved_points,
+      patient_country: c.patient_country,
+      pending_change: c.pending_change,
+      payment_status: c.payment_status,
+      payment_amount:
+        c.payment_amount === null ? null : Number(c.payment_amount),
+      payment_currency: c.payment_currency,
+      payment_proof_url: c.payment_proof_url,
+      // numeric comes back from pg as a string.
+      point_price_usd:
+        c.point_price_usd === null ? null : Number(c.point_price_usd),
+      doctor_note: c.doctor_note,
+      diagnosis_id: c.diagnosis_id,
+      cancel_reason_type: c.cancel_reason_type,
+      cancel_reason: c.cancel_reason,
+      created_at: c.created_at,
+      closed_at: c.closed_at,
+    };
+  }
+
+  /** True when an open consultation exists between the two users. */
+  async hasOpenBetween(userA: string, userB: string): Promise<boolean> {
+    const count = await this.consultationRepo
+      .createQueryBuilder('c')
+      .where('c.status = :open', { open: 'open' })
+      .andWhere(
+        '((c.patient_id = :a AND c.doctor_id = :b) OR (c.patient_id = :b AND c.doctor_id = :a))',
+        { a: userA, b: userB },
+      )
+      .getCount();
+    return count > 0;
+  }
+
+  /**
+   * Opens a consultation for a call the doctor just answered, unless one is
+   * already live. Without this, messaging (and record sharing) stays blocked
+   * during a video consultation — the message gate requires an open one.
+   */
+  async ensureOpenForVideoCall(
+    doctorUserId: string,
+    patientUserId: string,
+  ): Promise<void> {
+    if (await this.hasOpenBetween(doctorUserId, patientUserId)) return;
+
+    const consultation = this.consultationRepo.create({
+      patient_id: patientUserId,
+      doctor_id: doctorUserId,
+      status: 'open',
+      description: 'Video consultation',
+      // Video calls are free for now; the doctor collects the fee directly.
+      reserved_points: 0,
+    });
+    const saved = await this.consultationRepo.save(consultation);
+
+    await this.postActionMessage(
+      doctorUserId,
+      patientUserId,
+      'Video consultation started — you can message now',
+      {
+        consultation_id: saved.id,
+        action: 'accept',
+        status: 'open',
+      },
+    );
+
+    await this.grantRecordsForConsultation(patientUserId, doctorUserId);
+  }
+
+  /**
+   * Opens (or accepts) a consultation when a doctor confirms an appointment.
+   * Chat messaging is gated on an open consultation, so the thread must go
+   * live as soon as the slot is approved — same as an answered video call.
+   */
+  async ensureOpenForConfirmedAppointment(
+    doctorUserId: string,
+    patientUserId: string,
+    description?: string | null,
+  ): Promise<void> {
+    if (await this.hasOpenBetween(doctorUserId, patientUserId)) return;
+
+    const pending = await this.consultationRepo.findOne({
+      where: {
+        doctor_id: doctorUserId,
+        patient_id: patientUserId,
+        status: 'pending',
+      },
+      order: { created_at: 'DESC' },
+    });
+    if (pending) {
+      await this.accept(doctorUserId, pending.id);
+      return;
+    }
+
+    const trimmedDescription = description?.trim() || 'Appointment consultation';
+    const consultation = this.consultationRepo.create({
+      patient_id: patientUserId,
+      doctor_id: doctorUserId,
+      status: 'open',
+      description: trimmedDescription,
+      reserved_points: 0,
+    });
+    const saved = await this.consultationRepo.save(consultation);
+
+    await this.postActionMessage(
+      doctorUserId,
+      patientUserId,
+      'Appointment confirmed — consultation is open, you can message now',
+      {
+        consultation_id: saved.id,
+        action: 'accept',
+        status: 'open',
+      },
+      { alwaysPush: true },
+    );
+
+    await this.grantRecordsForConsultation(patientUserId, doctorUserId);
+
+    this.scheduleIndexConsultation(saved.id);
+  }
+
+  /** Open consultation between the given user and peer, if any. */
+  /**
+   * The live consultation between two users — pending counts as live, otherwise
+   * the doctor never sees the request they are meant to accept or decline.
+   * Pending is preferred so a fresh request wins over a stale open one.
+   */
+  async findActiveWithPeer(userId: string, peerId: string) {
+    const rows = await this.consultationRepo
+      .createQueryBuilder('c')
+      .where('c.status IN (:...live)', { live: ['pending', 'open'] })
+      .andWhere(
+        '((c.patient_id = :userId AND c.doctor_id = :peerId) OR (c.patient_id = :peerId AND c.doctor_id = :userId))',
+        { userId, peerId },
+      )
+      .orderBy(`CASE WHEN c.status = 'pending' THEN 0 ELSE 1 END`, 'ASC')
+      .addOrderBy('c.created_at', 'DESC')
+      .getOne();
+    return rows ? this.mapConsultation(rows) : null;
+  }
+
+  /** All consultations for a doctor, newest first, with patient display names. */
+  async listForDoctor(doctorUserId: string) {
+    await this.assertRole(doctorUserId, UserRole.DOCTOR);
+    const rows = await this.consultationRepo.find({
+      where: { doctor_id: doctorUserId },
+      order: { created_at: 'DESC' },
+    });
+    const names = await Promise.all(
+      rows.map((r) => this.users.getDisplayName(r.patient_id)),
+    );
+    // Patient country drives what the consultation is worth to the doctor
+    // (EG / JO / rest of world), so the app can price the list without a
+    // second round trip per row. Rows created before the IP capture have no
+    // country of their own — fall back to the patient's profile.
+    const countries = await Promise.all(
+      rows.map(async (r) => {
+        if (r.patient_country) return r.patient_country;
+        const profile = await this.patientProfileRepo.findOne({
+          where: { user_id: r.patient_id },
+        });
+        return profile?.country ?? null;
+      }),
+    );
+    const ids = rows.map((r) => r.id);
+    const complaints = ids.length
+      ? await this.complaintRepo.find({
+          where: { consultation_id: In(ids) },
+        })
+      : [];
+    const complaintByConsultation = new Map(
+      complaints.map((c) => [c.consultation_id, c.status]),
+    );
+    return rows.map((c, i) => ({
+      ...this.mapConsultation(c),
+      patient_name: names[i],
+      patient_country: countries[i],
+      complaint_status: complaintByConsultation.get(c.id) ?? null,
+    }));
+  }
+
+  /** All consultations for a patient, newest first, with doctor display names. */
+  async listForPatient(patientUserId: string) {
+    await this.assertRole(patientUserId, UserRole.PATIENT);
+    const rows = await this.consultationRepo.find({
+      where: { patient_id: patientUserId },
+      order: { created_at: 'DESC' },
+    });
+    const names = await Promise.all(
+      rows.map((r) => this.users.getDisplayName(r.doctor_id)),
+    );
+    return Promise.all(
+      rows.map(async (c, i) => {
+        const mapped = {
+          ...this.mapConsultation(c),
+          doctor_name: names[i],
+        };
+        if (
+          c.payment_status === 'awaiting_payment' ||
+          c.payment_status === 'proof_submitted'
+        ) {
+          const doctor = await this.doctorRepo.findOne({
+            where: { user_id: c.doctor_id },
+          });
+          return { ...mapped, ...doctorPaymentDetailsForPatient(doctor) };
+        }
+        return mapped;
+      }),
+    );
+  }
+
+  private async assertRole(userId: string, role: UserRole): Promise<User> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || user.role !== role) {
+      throw new ForbiddenException('Not allowed');
+    }
+    return user;
+  }
+
+  /** Client geo → server IP / edge headers → profile residence fallback. */
+  async resolveConsultationCountry(
+    patientUserId: string,
+    req: RequestLike,
+  ): Promise<string | null> {
+    const profile = await this.patientProfileRepo.findOne({
+      where: { user_id: patientUserId },
+    });
+    return resolveConsultationCountry(req, profile?.country);
+  }
+
+  async start(
+    patientUserId: string,
+    dto: StartConsultationDto,
+    patientCountry?: string | null,
+  ) {
+    await this.assertRole(patientUserId, UserRole.PATIENT);
+    if (dto.doctor_id === patientUserId) {
+      throw new BadRequestException('Invalid doctor');
+    }
+    const doctorUser = await this.userRepo.findOne({
+      where: { id: dto.doctor_id },
+    });
+    if (!doctorUser || doctorUser.role !== UserRole.DOCTOR) {
+      throw new NotFoundException('Doctor not found');
+    }
+    const doctor = await this.doctorRepo.findOne({
+      where: { user_id: dto.doctor_id },
+    });
+    const price = clampConsultationPrice(doctor?.consultation_price ?? 10);
+
+    const existing = await this.consultationRepo.findOne({
+      where: [
+        { patient_id: patientUserId, doctor_id: dto.doctor_id, status: 'open' },
+        { patient_id: patientUserId, doctor_id: dto.doctor_id, status: 'pending' },
+      ],
+    });
+    if (existing) {
+      throw new BadRequestException(
+        existing.status === 'pending'
+          ? 'This doctor has not answered your previous request yet'
+          : 'You already have an open consultation with this doctor',
+      );
+    }
+
+    // Egypt / Jordan / rest of world, at the admin-set rate of the moment.
+    // Resolved before reserving so a pricing failure cannot strand credits.
+    const country = patientCountry?.trim().toUpperCase() || null;
+    const pointPrice = (await this.pointPricing.resolve(country)).pricePerPoint;
+
+    // Reserve first so an insufficient balance fails before we create anything.
+    // Free for now — see CONSULTATION_POINT_COST.
+    await this.points.reservePoints(patientUserId, CONSULTATION_POINT_COST);
+
+    let saved: Consultation;
+    try {
+      const created = this.consultationRepo.create({
+        patient_id: patientUserId,
+        doctor_id: dto.doctor_id,
+        // Awaits the doctor's answer; credits stay reserved meanwhile.
+        status: 'pending',
+        description: dto.description?.trim() ?? '',
+        reserved_points: price,
+        patient_country: country,
+        point_price_usd: pointPrice.toFixed(2),
+      });
+      saved = await this.consultationRepo.save(created);
+    } catch (e) {
+      // Unique open-pair index race, etc. — give the points back.
+      await this.points.refundReserved(patientUserId, price);
+      throw new BadRequestException('Could not start consultation');
+    }
+
+    await this.postActionMessage(
+      patientUserId,
+      dto.doctor_id,
+      saved.description || 'Consultation request',
+      {
+        consultation_id: saved.id,
+        action: 'start',
+        status: 'pending',
+        reserved_points: price,
+        patient_country: saved.patient_country,
+      },
+      // The doctor has to answer before anything happens, so this notifies like
+      // an incoming call: presence can still list a backgrounded or stale socket
+      // as online, and suppressing the push there left requests unanswered.
+      {
+        alwaysPush: true,
+        notifyBody: saved.description?.trim()
+          ? `New consultation request: ${saved.description.trim()}`
+          : 'New consultation request',
+      },
+    );
+
+    await this.grantRecordsForConsultation(patientUserId, dto.doctor_id);
+
+    this.scheduleIndexConsultation(saved.id);
+
+    const summary = await this.points.getSummary(patientUserId);
+    return { consultation: this.mapConsultation(saved), points: summary };
+  }
+
+  private async loadOpenForDoctor(consultationId: string, doctorUserId: string) {
+    await this.assertRole(doctorUserId, UserRole.DOCTOR);
+    const c = await this.consultationRepo.findOne({
+      where: { id: consultationId },
+    });
+    if (!c) throw new NotFoundException('Consultation not found');
+    if (c.doctor_id !== doctorUserId) {
+      throw new ForbiddenException('Not your consultation');
+    }
+    if (c.status !== 'open') {
+      throw new BadRequestException('Consultation is not open');
+    }
+    return c;
+  }
+
+  private async loadPendingForDoctor(
+    consultationId: string,
+    doctorUserId: string,
+  ): Promise<Consultation> {
+    const c = await this.consultationRepo.findOne({
+      where: { id: consultationId },
+    });
+    if (!c) throw new NotFoundException('Consultation not found');
+    if (c.doctor_id !== doctorUserId) {
+      throw new ForbiddenException('Not your consultation');
+    }
+    if (c.status !== 'pending') {
+      throw new BadRequestException('This request has already been answered');
+    }
+    return c;
+  }
+
+  /**
+   * Doctor accepts a pending request. Accepting outright opens the chat;
+   * accepting with `requirePayment` leaves it pending until the patient pays
+   * and the doctor approves the receipt.
+   */
+  async accept(
+    doctorUserId: string,
+    consultationId: string,
+    requirePayment = false,
+    requestCountry?: string | null,
+  ) {
+    await this.assertRole(doctorUserId, UserRole.DOCTOR);
+    const c = await this.loadPendingForDoctor(consultationId, doctorUserId);
+
+    if (requirePayment) {
+      const fee = await this.resolveConsultationFee(c, 'text', requestCountry);
+      if (fee.amount <= 0) {
+        throw new BadRequestException(
+          'Set your consultation price before asking for payment',
+        );
+      }
+      const doctor = await this.doctorRepo.findOne({
+        where: { user_id: doctorUserId },
+      });
+      c.payment_status = 'awaiting_payment';
+      c.payment_amount = fee.amount.toFixed(2);
+      c.payment_currency = fee.currency;
+      c.payment_proof_url = null;
+      const held = await this.consultationRepo.save(c);
+
+      await this.postActionMessage(
+        doctorUserId,
+        c.patient_id,
+        `Please pay ${fee.amount} ${fee.currency} to start the consultation`,
+        {
+          consultation_id: held.id,
+          action: 'payment_request',
+          status: held.status,
+          reserved_points: held.reserved_points,
+          payment_status: held.payment_status,
+          payment_amount: fee.amount,
+          payment_currency: fee.currency,
+          ...doctorPaymentDetailsForPatient(doctor),
+        },
+        { alwaysPush: true },
+      );
+      return { consultation: this.mapConsultation(held) };
+    }
+
+    const saved = await this.openAccepted(c, doctorUserId, 'accept');
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  /** The doctor's price for this patient at their consultation location. */
+  private async resolveConsultationFee(
+    c: Consultation,
+    kind: 'text' | 'video',
+    _requestCountry?: string | null,
+  ) {
+    void _requestCountry;
+    const doctor = await this.doctorRepo.findOne({
+      where: { user_id: c.doctor_id },
+    });
+    if (!doctor) return { amount: 0, currency: 'USD' as const, payment_link: null };
+    return resolveDoctorFee(doctor, c.patient_country, kind);
+  }
+
+  /** Opens an accepted consultation and tells the patient. */
+  private async openAccepted(
+    c: Consultation,
+    doctorUserId: string,
+    action: 'accept' | 'payment_approved',
+  ): Promise<Consultation> {
+    c.status = 'open';
+    const saved = await this.consultationRepo.save(c);
+
+    await this.postActionMessage(
+      doctorUserId,
+      c.patient_id,
+      action === 'accept'
+        ? 'Accepted your consultation request — you can message now'
+        : 'Payment approved — you can message now',
+      {
+        consultation_id: saved.id,
+        action,
+        status: 'open',
+        reserved_points: saved.reserved_points,
+        payment_status: saved.payment_status,
+      },
+      { alwaysPush: true },
+    );
+
+    await this.grantRecordsForConsultation(c.patient_id, doctorUserId);
+
+    this.scheduleIndexConsultation(saved.id);
+    return saved;
+  }
+
+  /** Patient uploads the receipt for a consultation the doctor priced. */
+  async submitPaymentProof(
+    patientUserId: string,
+    consultationId: string,
+    proofUrl: string,
+  ) {
+    await this.assertRole(patientUserId, UserRole.PATIENT);
+    const c = await this.consultationRepo.findOne({
+      where: { id: consultationId },
+    });
+    if (!c) throw new NotFoundException('Consultation not found');
+    if (c.patient_id !== patientUserId) {
+      throw new ForbiddenException('Not your consultation');
+    }
+    if (
+      c.payment_status !== 'awaiting_payment' &&
+      c.payment_status !== 'proof_submitted'
+    ) {
+      throw new BadRequestException('No payment was requested');
+    }
+    const proof = proofUrl?.trim();
+    if (!proof) throw new BadRequestException('Attach the payment receipt');
+
+    c.payment_proof_url = proof;
+    c.payment_status = 'proof_submitted';
+    const saved = await this.consultationRepo.save(c);
+
+    await this.postActionMessage(
+      patientUserId,
+      c.doctor_id,
+      'Sent the payment receipt',
+      {
+        consultation_id: saved.id,
+        action: 'payment_submitted',
+        status: saved.status,
+        payment_status: saved.payment_status,
+        payment_amount:
+          saved.payment_amount === null ? null : Number(saved.payment_amount),
+        payment_currency: saved.payment_currency,
+        payment_proof_url: saved.payment_proof_url,
+      },
+      { alwaysPush: true },
+    );
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  /** Doctor approves or rejects the receipt. Approving opens the chat. */
+  async reviewPayment(
+    doctorUserId: string,
+    consultationId: string,
+    approve: boolean,
+  ) {
+    await this.assertRole(doctorUserId, UserRole.DOCTOR);
+    const c = await this.consultationRepo.findOne({
+      where: { id: consultationId },
+    });
+    if (!c) throw new NotFoundException('Consultation not found');
+    if (c.doctor_id !== doctorUserId) {
+      throw new ForbiddenException('Not your consultation');
+    }
+    if (c.payment_status !== 'proof_submitted') {
+      throw new BadRequestException('There is no receipt to review');
+    }
+
+    if (!approve) {
+      c.payment_status = 'awaiting_payment';
+      c.payment_proof_url = null;
+      const saved = await this.consultationRepo.save(c);
+      await this.postActionMessage(
+        doctorUserId,
+        c.patient_id,
+        'The payment receipt was rejected',
+        {
+          consultation_id: saved.id,
+          action: 'payment_rejected',
+          status: saved.status,
+          payment_status: saved.payment_status,
+          payment_amount:
+            saved.payment_amount === null ? null : Number(saved.payment_amount),
+          payment_currency: saved.payment_currency,
+          ...doctorPaymentDetailsForPatient(
+            await this.doctorRepo.findOne({
+              where: { user_id: doctorUserId },
+            }),
+          ),
+        },
+        { alwaysPush: true },
+      );
+      return { consultation: this.mapConsultation(saved) };
+    }
+
+    c.payment_status = 'paid';
+    const saved = await this.openAccepted(c, doctorUserId, 'payment_approved');
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  /** Doctor declines — the patient's held credits go straight back. */
+  async reject(doctorUserId: string, consultationId: string, reason?: string) {
+    await this.assertRole(doctorUserId, UserRole.DOCTOR);
+    const c = await this.loadPendingForDoctor(consultationId, doctorUserId);
+
+    c.status = 'rejected';
+    const held = c.reserved_points ?? 0;
+    c.reserved_points = 0;
+    const saved = await this.consultationRepo.save(c);
+
+    if (held > 0) {
+      // A failed refund must not strand the request in pending.
+      await this.points
+        .refundReserved(c.patient_id, held)
+        .catch(() => undefined);
+    }
+
+    const declineBody =
+      reason?.trim() ||
+      (held > 0
+        ? `Declined your consultation request — ${held} credits refunded`
+        : 'Declined your consultation request');
+
+    await this.postActionMessage(
+      doctorUserId,
+      c.patient_id,
+      declineBody,
+      {
+        consultation_id: saved.id,
+        action: 'reject',
+        status: 'rejected',
+        reserved_points: 0,
+      },
+      { alwaysPush: true },
+    );
+
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  async end(doctorUserId: string, consultationId: string, dto: EndConsultationDto) {
+    const c = await this.loadOpenForDoctor(consultationId, doctorUserId);
+
+    let diagnosisId: string | null = null;
+    let diagnosisSummary: ConsultationDiagnosisSummary | null = null;
+    const doctor = await this.doctorRepo.findOne({
+      where: { user_id: doctorUserId },
+    });
+
+    const details = dto.diagnosis_details?.desc?.trim();
+    const legacyDiagnosisText = dto.diagnosis?.trim();
+
+    if (details && doctor) {
+      const detailsDto = dto.diagnosis_details!;
+      const created = await this.diagnosis.create(
+        {
+          desc: details,
+          patient_id: c.patient_id,
+          doctor_id: doctor.id,
+          body_part: detailsDto.body_part,
+          symptoms: detailsDto.symptoms,
+          document_ids: detailsDto.document_ids,
+          prescription_id: detailsDto.prescription_id,
+          prescription: detailsDto.prescription,
+          intake_exam_assignment_id: detailsDto.intake_exam_assignment_id,
+          intake_exam: detailsDto.intake_exam,
+        },
+        doctorUserId,
+        UserRole.DOCTOR,
+      );
+      diagnosisId = created.id;
+      diagnosisSummary = this.mapDiagnosisSummary(created);
+    } else if (legacyDiagnosisText && doctor) {
+      const created = await this.diagnosis.create(
+        {
+          desc: legacyDiagnosisText,
+          patient_id: c.patient_id,
+          doctor_id: doctor.id,
+          symptoms: [],
+        },
+        doctorUserId,
+        UserRole.DOCTOR,
+      );
+      diagnosisId = created.id;
+      diagnosisSummary = this.mapDiagnosisSummary(created);
+    }
+
+    // Completed work — the patient's reserved points are credited to the doctor.
+    await this.points.settleReservedToDoctor(
+      c.patient_id,
+      c.doctor_id,
+      c.reserved_points,
+    );
+
+    c.status = 'ended';
+    c.doctor_note = dto.note?.trim() || null;
+    c.diagnosis_id = diagnosisId;
+    c.closed_at = new Date();
+    const saved = await this.consultationRepo.save(c);
+
+    await this.postActionMessage(
+      doctorUserId,
+      c.patient_id,
+      saved.doctor_note || 'Consultation ended',
+      {
+        consultation_id: saved.id,
+        action: 'end',
+        status: 'ended',
+        diagnosis_id: diagnosisId,
+        diagnosis_summary: diagnosisSummary,
+      },
+    );
+
+    this.scheduleIndexConsultation(saved.id);
+
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  private mapDiagnosisSummary(created: {
+    id: string;
+    desc: string;
+    symptoms?: { desc: string }[];
+    documents?: { id: string; title: string; type: DocumentType }[];
+  }): ConsultationDiagnosisSummary {
+    return {
+      id: created.id,
+      desc: created.desc,
+      symptoms: (created.symptoms ?? []).map((s) => ({ desc: s.desc })),
+      linked_records: (created.documents ?? []).map((doc) => ({
+        id: doc.id,
+        title: doc.title?.trim() || 'Medical record',
+        record_type: doc.type === DocumentType.LAB ? 'lab' : 'xray',
+      })),
+    };
+  }
+
+  /**
+   * Cancelling an open consultation is a request now — it was already agreed,
+   * so the patient has to agree to undo it.
+   */
+  async cancel(
+    doctorUserId: string,
+    consultationId: string,
+    dto: CancelConsultationDto,
+  ) {
+    const c = await this.loadOpenForDoctor(consultationId, doctorUserId);
+
+    c.pending_change = {
+      kind: 'cancel',
+      by: doctorUserId,
+      reason_type: dto.reason_type,
+      reason: dto.reason?.trim() || undefined,
+    };
+    const saved = await this.consultationRepo.save(c);
+
+    await this.postActionMessage(
+      doctorUserId,
+      c.patient_id,
+      saved.pending_change?.reason || 'Asked to cancel the consultation',
+      {
+        consultation_id: saved.id,
+        action: 'cancel_request',
+        status: saved.status,
+        cancel_reason_type: dto.reason_type as ConsultationCancelReasonType,
+        cancel_reason: saved.pending_change?.reason,
+        pending_by: doctorUserId,
+      },
+      { alwaysPush: true },
+    );
+
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  /** The other side answers a cancellation request. */
+  async reviewCancel(userId: string, consultationId: string, approve: boolean) {
+    const c = await this.consultationRepo.findOne({
+      where: { id: consultationId },
+    });
+    if (!c) throw new NotFoundException('Consultation not found');
+    if (c.patient_id !== userId && c.doctor_id !== userId) {
+      throw new ForbiddenException('Not your consultation');
+    }
+    const pending = c.pending_change;
+    if (!pending || pending.kind !== 'cancel') {
+      throw new BadRequestException('There is nothing to answer');
+    }
+    if (pending.by === userId) {
+      throw new ForbiddenException('The other person has to answer this');
+    }
+    const peerId = c.patient_id === userId ? c.doctor_id : c.patient_id;
+
+    if (!approve) {
+      c.pending_change = null;
+      const kept = await this.consultationRepo.save(c);
+      await this.postActionMessage(
+        userId,
+        peerId,
+        'Declined cancelling the consultation',
+        {
+          consultation_id: kept.id,
+          action: 'cancel_declined',
+          status: kept.status,
+        },
+        { alwaysPush: true },
+      );
+      return { consultation: this.mapConsultation(kept) };
+    }
+
+    // Agreed: close it and give the held credits back.
+    await this.points.refundReserved(c.patient_id, c.reserved_points);
+    c.status = 'cancelled';
+    c.cancel_reason_type =
+      (pending.reason_type as ConsultationCancelReasonType) ?? null;
+    c.cancel_reason = pending.reason ?? null;
+    c.closed_at = new Date();
+    c.pending_change = null;
+    const saved = await this.consultationRepo.save(c);
+
+    await this.postActionMessage(
+      userId,
+      peerId,
+      saved.cancel_reason || 'Consultation cancelled',
+      {
+        consultation_id: saved.id,
+        action: 'cancel_approved',
+        status: 'cancelled',
+        cancel_reason_type: saved.cancel_reason_type ?? undefined,
+        cancel_reason: saved.cancel_reason ?? undefined,
+      },
+      { alwaysPush: true },
+    );
+
+    this.scheduleIndexConsultation(saved.id);
+    return { consultation: this.mapConsultation(saved) };
+  }
+
+  /**
+   * Either party deletes a consultation and all related chat messages.
+   * Pending/open consultations refund reserved credits to the patient.
+   */
+  async remove(userId: string, consultationId: string) {
+    const c = await this.consultationRepo.findOne({
+      where: { id: consultationId },
+    });
+    if (!c) throw new NotFoundException('Consultation not found');
+    if (c.patient_id !== userId && c.doctor_id !== userId) {
+      throw new ForbiddenException('Not your consultation');
+    }
+
+    const peerId = c.patient_id === userId ? c.doctor_id : c.patient_id;
+    const patientId = c.patient_id;
+    const doctorId = c.doctor_id;
+
+    if (c.status === 'pending' || c.status === 'open') {
+      const held = c.reserved_points ?? 0;
+      if (held > 0) {
+        await this.points
+          .refundReserved(c.patient_id, held)
+          .catch(() => undefined);
+      }
+    }
+
+    const endTime = c.closed_at ?? new Date();
+    const rows = await this.messageRepo
+      .createQueryBuilder('m')
+      .where(
+        '((m.creator = :patient AND m.recipient = :doctor) OR (m.creator = :doctor AND m.recipient = :patient))',
+        { patient: patientId, doctor: doctorId },
+      )
+      .andWhere(
+        `(m.datetime >= :start AND m.datetime <= :end) OR (m.attachment_meta->>'consultation_id' = :cid)`,
+        { start: c.created_at, end: endTime, cid: consultationId },
+      )
+      .getMany();
+
+    const messageIds = rows.map((row) => row.id);
+    if (messageIds.length > 0) {
+      await this.messageRepo.delete(messageIds);
+    }
+
+    await this.complaintRepo.delete({ consultation_id: consultationId });
+    await this.consultationRepo.delete({ id: consultationId });
+
+    const removalPayload = {
+      consultation_id: consultationId,
+      peer_id: userId,
+      message_ids: messageIds,
+    };
+    this.presence.emitToUser(peerId, 'consultation:removed', removalPayload);
+    this.presence.emitToUser(userId, 'consultation:removed', {
+      ...removalPayload,
+      peer_id: peerId,
+    });
+
+    for (const messageId of messageIds) {
+      this.presence.emitToUser(patientId, 'message:deleted', {
+        message_id: messageId,
+        peer_id: doctorId,
+      });
+      this.presence.emitToUser(doctorId, 'message:deleted', {
+        message_id: messageId,
+        peer_id: patientId,
+      });
+    }
+
+    const removerName = await this.users.getDisplayName(userId);
+    void this.pushNotifications
+      .sendSystemNotification(
+        {
+          recipientId: peerId,
+          title: 'Consultation removed',
+          body: `${removerName} removed the consultation and its chat history`,
+          data: {
+            type: 'consultation_removed',
+            consultationId,
+            chatId: userId,
+            removedBy: userId,
+          },
+        },
+        { alwaysPush: true },
+      )
+      .catch(() => undefined);
+
+    return {
+      ok: true,
+      consultation_id: consultationId,
+      deleted_message_ids: messageIds,
+    };
+  }
+}

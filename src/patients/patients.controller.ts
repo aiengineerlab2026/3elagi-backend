@@ -1,0 +1,119 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import { PatientsService } from './patients.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
+import { CreatePatientDto } from './dto/create-patient.dto';
+import { UpdatePatientDto } from './dto/update-patient.dto';
+import { UpdatePatientVitalsDto } from './dto/update-patient-vitals.dto';
+
+@Controller('patients')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class PatientsController {
+  constructor(private readonly patientsService: PatientsService) {}
+
+  @Get('lookup')
+  lookup(
+    @Query('phone') phone: string,
+    @Query('clinic_id') clinicId: string,
+    @Request() req,
+  ) {
+    return this.patientsService.findByPhone(phone, clinicId, req.user.id, req.user.role);
+  }
+
+  @Get('clinic/:clinicId')
+  @Public()
+  findByClinic(@Param('clinicId') clinicId: string) {
+    return this.patientsService.findByClinic(clinicId);
+  }
+
+  @Get()
+  @Roles('doctor', 'admin')
+  findAll() {
+    return this.patientsService.findAll();
+  }
+
+  @Get('registered')
+  @Roles('doctor')
+  getRegisteredPatients(@Request() req) {
+    return this.patientsService.getRegisteredPatientsForDoctorUser(req.user.id);
+  }
+
+  @Get('by-doctor/:doctorId')
+  @Roles('doctor')
+  getDoctorPatients(@Param('doctorId') doctorId: string, @Request() req) {
+    return this.patientsService.getDoctorPatients(doctorId, req.user.id);
+  }
+
+  @Get(':id/intake-history')
+  getIntakeHistory(@Param('id') id: string, @Request() req) {
+    return this.patientsService.getIntakeHistory(id, req.user.id, req.user.role);
+  }
+
+  @Get(':id/vitals')
+  getPatientVitals(@Param('id') id: string) {
+    return this.patientsService.getVitals(id);
+  }
+
+  @Get(':id')
+  findById(@Param('id') id: string, @Request() req) {
+    return this.patientsService.findByIdWithDocuments(id, req.user.id, req.user.role);
+  }
+
+  @Post()
+  @Public()
+  create(@Body() dto: CreatePatientDto) {
+    return this.patientsService.create(dto);
+  }
+
+  @Put(':id')
+  @Public()
+  update(@Param('id') id: string, @Body() dto: UpdatePatientDto) {
+    return this.patientsService.update(id, dto);
+  }
+
+  @Patch(':id')
+  @Public()
+  patch(@Param('id') id: string, @Body() dto: UpdatePatientDto) {
+    return this.patientsService.update(id, dto);
+  }
+}
+
+@Controller('patient')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('patient')
+export class PatientSelfController {
+  constructor(private readonly patientsService: PatientsService) {}
+
+  @Patch()
+  updateMe(@Body() dto: UpdatePatientDto, @Request() req) {
+    return this.patientsService.updateSelf(req.user.id, dto);
+  }
+
+  @Get()
+  getMe(@Request() req) {
+    return this.patientsService.findById(req.user.id);
+  }
+
+  @Get('vitals')
+  getMyVitals(@Request() req) {
+    return this.patientsService.getVitals(req.user.id);
+  }
+
+  @Patch('vitals')
+  updateMyVitals(@Body() dto: UpdatePatientVitalsDto, @Request() req) {
+    return this.patientsService.updateSelfVitals(req.user.id, dto);
+  }
+}

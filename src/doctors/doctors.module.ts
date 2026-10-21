@@ -1,0 +1,31 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DoctorsController } from './doctors.controller';
+import { DoctorsService } from './doctors.service';
+import { Doctor } from '../entities/doctor.entity';
+import { Clinic } from '../entities/clinic.entity';
+import { DoctorSpeciality } from '../entities/doctor-speciality.entity';
+import { AiModule } from '../ai/ai.module';
+import { PresenceModule } from '../presence/presence.module';
+import { SpecialitiesModule } from '../specialities/specialities.module';
+import { ReviewsModule } from '../reviews/reviews.module';
+import { DoctorTagsModule } from '../doctor-tags/doctor-tags.module';
+import { DoctorOnboardingModule } from '../doctor-onboarding/doctor-onboarding.module';
+import { DoctorSpecialityChangeRequestsModule } from '../doctor-speciality-change-requests/doctor-speciality-change-requests.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Doctor, Clinic, DoctorSpeciality]),
+    AiModule,
+    PresenceModule,
+    SpecialitiesModule,
+    ReviewsModule,
+    DoctorTagsModule,
+    DoctorOnboardingModule,
+    DoctorSpecialityChangeRequestsModule,
+  ],
+  controllers: [DoctorsController],
+  providers: [DoctorsService],
+  exports: [DoctorsService],
+})
+export class DoctorsModule {}

@@ -1,0 +1,98 @@
+import {
+  IsEmail,
+  IsString,
+  IsOptional,
+  IsNumber,
+  IsUUID,
+  IsInt,
+  Min,
+  Max,
+  IsIn,
+  IsNotEmpty,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { DOCTOR_SIGNUP_COUNTRY_CODES } from '../../common/patient-countries';
+
+export class RegisterDoctorDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  password: string;
+
+  @IsString()
+  name: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  age?: number;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsNotEmpty()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @IsString()
+  @IsIn([...DOCTOR_SIGNUP_COUNTRY_CODES], {
+    message: `country must be one of: ${DOCTOR_SIGNUP_COUNTRY_CODES.join(', ')}`,
+  })
+  country: string;
+
+  @IsString()
+  @IsOptional()
+  clinic_location?: string;
+
+  @IsString()
+  @IsOptional()
+  photo_url?: string;
+
+  @IsString()
+  @IsOptional()
+  graduation_cert_url?: string;
+
+  @IsString()
+  @IsOptional()
+  work_permit_url?: string;
+
+  @IsUUID()
+  speciality_id: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(100_000)
+  @IsOptional()
+  @Type(() => Number)
+  consultation_price?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  text_price_local?: number | null;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  text_price_usd?: number | null;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  video_price_local?: number | null;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  @Type(() => Number)
+  video_price_usd?: number | null;
+
+  @IsString()
+  @IsOptional()
+  payment_link?: string | null;
+}

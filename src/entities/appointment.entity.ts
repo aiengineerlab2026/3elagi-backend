@@ -1,0 +1,137 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
+import { Clinic } from './clinic.entity';
+import { Doctor } from './doctor.entity';
+import { Patient } from './patient.entity';
+import type { PaymentState } from '../common/payment-flow';
+import type { PendingChange } from '../common/pending-change';
+
+export enum AppointmentStatus {
+  PENDING = 'pending',
+  CONFIRMED = 'confirmed',
+  REJECTED = 'rejected',
+  WAITING = 'waiting',
+  ACTIVE = 'active',
+  DONE = 'done',
+  CANCELLED = 'cancelled',
+}
+
+@Entity('appointments')
+export class Appointment {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column()
+  clinic_id: string;
+
+  @ManyToOne(() => Clinic, { eager: false })
+  @JoinColumn({ name: 'clinic_id' })
+  clinic: Clinic;
+
+  @Column({ nullable: true })
+  doctor_id: string | null;
+
+  @ManyToOne(() => Doctor, { nullable: true, eager: true })
+  @JoinColumn({ name: 'doctor_id' })
+  doctor: Doctor | null;
+
+  @Column({ nullable: true })
+  patient_id: string;
+
+  @ManyToOne(() => Patient, { nullable: true, eager: true })
+  @JoinColumn({ name: 'patient_id' })
+  patient: Patient;
+
+  @Column({ nullable: true })
+  patient_name: string;
+
+  @Column()
+  patient_phone: string;
+
+  @Column({ type: 'date' })
+  date: string;
+
+  @Column({ type: 'time', nullable: true })
+  time: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: AppointmentStatus,
+    default: AppointmentStatus.WAITING,
+  })
+  status: AppointmentStatus;
+
+  @Column({ default: 0 })
+  queue_position: number;
+
+  @Column({ type: 'uuid', nullable: true })
+  intake_test_id: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  intake_answers: Record<string, string[]> | null;
+
+  @Column({ type: 'boolean', default: false })
+  booked_via_app: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  patient_user_id: string | null;
+
+  /** ISO-2 country the patient booked from, resolved from their IP. */
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  patient_country: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  hide_name: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  meeting_link: string | null;
+
+  /** AI-written, doctor-facing note (why the patient booked + relevant history). */
+  @Column({ type: 'text', nullable: true })
+  ai_patient_insight: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  video_call_session_id: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  reminder_sent_at: Date | null;
+
+  /** EGP credits reserved from the patient when booking via app. */
+  @Column({ type: 'int', default: 0 })
+  reserved_points: number;
+
+  /** True after reserved credits were settled to the doctor. */
+  @Column({ type: 'boolean', default: false })
+  points_settled: boolean;
+
+  /** Cash payment the doctor asked for; see PaymentState. */
+  @Column({ type: 'varchar', length: 24, default: 'none' })
+  payment_status: PaymentState;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  payment_amount: string | null;
+
+  @Column({ type: 'varchar', length: 3, nullable: true })
+  payment_currency: string | null;
+
+  /** Receipt the patient uploaded, waiting for the doctor to approve it. */
+  @Column({ type: 'text', nullable: true })
+  payment_proof_url: string | null;
+
+  /** Change awaiting the other side's answer (new slot, or cancellation). */
+  @Column({ type: 'jsonb', nullable: true })
+  pending_change: PendingChange | null;
+
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
+}

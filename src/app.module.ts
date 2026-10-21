@@ -1,0 +1,440 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { User } from './entities/user.entity';
+import { Clinic } from './entities/clinic.entity';
+import { Doctor } from './entities/doctor.entity';
+import { ClinicJoinRequest } from './entities/clinic-join-request.entity';
+import { Patient } from './entities/patient.entity';
+import { Appointment } from './entities/appointment.entity';
+import { MedicalDocument } from './entities/medical-document.entity';
+import { Diagnosis } from './entities/diagnosis.entity';
+import { Symptom } from './entities/symptom.entity';
+import { Prescription } from './entities/prescription.entity';
+import { PrescriptionMedication } from './entities/prescription-medication.entity';
+import { PrescriptionTemplate } from './entities/prescription-template.entity';
+import { IntakeTest } from './entities/intake-test.entity';
+import { IntakeExamAssignment } from './entities/intake-exam-assignment.entity';
+import { IntakeExamInstance } from './entities/intake-exam-instance.entity';
+import { PatientProfile } from './entities/patient-profile.entity';
+import { DoctorSchedule } from './entities/doctor-schedule.entity';
+import { DoctorScheduleOverride } from './entities/doctor-schedule-override.entity';
+import { InitialSchema1777599963712 } from './migrations/1777599963712-InitialSchema';
+import { AddIsPersonalToClinic1777600000001 } from './migrations/1777600000001-AddIsPersonalToClinic';
+import { PrescriptionsAndSettings1777800000000 } from './migrations/1777800000000-PrescriptionsAndSettings';
+import { PrescriptionTemplates1777810000000 } from './migrations/1777810000000-PrescriptionTemplates';
+import { AddClinicLogo1777820000000 } from './migrations/1777820000000-AddClinicLogo';
+import { IntakeTests1777830000000 } from './migrations/1777830000000-IntakeTests';
+import { PatientPortal1777840000000 } from './migrations/1777840000000-PatientPortal';
+import { ScheduleOverrides1777850000000 } from './migrations/1777850000000-ScheduleOverrides';
+import { AdminAndIntakeSimplify1777860000000 } from './migrations/1777860000000-AdminAndIntakeSimplify';
+import { PatientPhotoAndIntakeEndpoints1777870000000 } from './migrations/1777870000000-PatientPhotoAndIntakeEndpoints';
+import { DoctorProfileAndApproval1777880000000 } from './migrations/1777880000000-DoctorProfileAndApproval';
+import { DoctorFaqsAndReviews1777890000000 } from './migrations/1777890000000-DoctorFaqsAndReviews';
+import { DoctorTags1777900000000 } from './migrations/1777900000000-DoctorTags';
+import { PatientOnboardingIntake1777910000000 } from './migrations/1777910000000-PatientOnboardingIntake';
+import { AppointmentHideName1777920000000 } from './migrations/1777920000000-AppointmentHideName';
+import { AppointmentApproval1777930000000 } from './migrations/1777930000000-AppointmentApproval';
+import { DiagnosisAndSymptoms1777940000000 } from './migrations/1777940000000-DiagnosisAndSymptoms';
+import { AddPatientsPhotoUrl1777950000000 } from './migrations/1777950000000-AddPatientsPhotoUrl';
+import { AddUsersPhotoUrl1777960000000 } from './migrations/1777960000000-AddUsersPhotoUrl';
+import { MedicalDocumentsTitle1777970000000 } from './migrations/1777970000000-MedicalDocumentsTitle';
+import { NullableDiagnosisDoctor1777980000000 } from './migrations/1777980000000-NullableDiagnosisDoctor';
+import { SymptomDoctorId1777990000000 } from './migrations/1777990000000-SymptomDoctorId';
+import { SpecialitiesAndAdvertisements1778000000000 } from './migrations/1778000000000-SpecialitiesAndAdvertisements';
+import { FixSpecialityImagesAndAssignDoctors1778010000000 } from './migrations/1778010000000-FixSpecialityImagesAndAssignDoctors';
+import { UpdateSpecialityExpressiveImages1778020000000 } from './migrations/1778020000000-UpdateSpecialityExpressiveImages';
+import { BundledSpecialityImages1778030000000 } from './migrations/1778030000000-BundledSpecialityImages';
+import { SurgeryAndAlaadocSpecialities1778040000000 } from './migrations/1778040000000-SurgeryAndAlaadocSpecialities';
+import { RemoveDemoDoctors1778050000000 } from './migrations/1778050000000-RemoveDemoDoctors';
+import { DoctorReview } from './entities/review.entity';
+import { DoctorSpeciality } from './entities/doctor-speciality.entity';
+import { Advertisement } from './entities/advertisement.entity';
+import { AdminModule } from './admin/admin.module';
+import { AuthModule } from './auth/auth.module';
+import { ContactModule } from './contact/contact.module';
+import { DoctorRegistrationRequestsModule } from './doctor-registration-requests/doctor-registration-requests.module';
+import { AppReviewsModule } from './app-reviews/app-reviews.module';
+import { DoctorTagsModule } from './doctor-tags/doctor-tags.module';
+import { ClinicsModule } from './clinics/clinics.module';
+import { DoctorsModule } from './doctors/doctors.module';
+import { DoctorOnboardingModule } from './doctor-onboarding/doctor-onboarding.module';
+import { JoinRequestsModule } from './join-requests/join-requests.module';
+import { PatientsModule } from './patients/patients.module';
+import { AppointmentsModule } from './appointments/appointments.module';
+import { MedicalDocumentsModule } from './medical-documents/medical-documents.module';
+import { PrescriptionsModule } from './prescriptions/prescriptions.module';
+import { PrescriptionTemplatesModule } from './prescription-templates/prescription-templates.module';
+import { IntakeTestsModule } from './intake-tests/intake-tests.module';
+import { IntakeExamsModule } from './intake-exams/intake-exams.module';
+import { SchedulesModule } from './schedules/schedules.module';
+import { PatientPortalModule } from './patient-portal/patient-portal.module';
+import { ConsultationsModule } from './consultations/consultations.module';
+import { ComplaintsModule } from './complaints/complaints.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { UploadsModule } from './uploads/uploads.module';
+import { HealthModule } from './health/health.module';
+import { UsersModule } from './users/users.module';
+import { DiagnosisModule } from './diagnosis/diagnosis.module';
+import { SymptomsModule } from './symptoms/symptoms.module';
+import { SpecialitiesModule } from './specialities/specialities.module';
+import { AdvertisementsModule } from './advertisements/advertisements.module';
+import { PresenceModule } from './presence/presence.module';
+import { MessagesModule } from './messages/messages.module';
+import { Message } from './entities/message.entity';
+import { MessagesTable1778060000000 } from './migrations/1778060000000-MessagesTable';
+import { MessageAttachmentsAndRead1778070000000 } from './migrations/1778070000000-MessageAttachmentsAndRead';
+import { MessageEditedAt1778080000000 } from './migrations/1778080000000-MessageEditedAt';
+import { DoctorPatientAccess1778090000000 } from './migrations/1778090000000-DoctorPatientAccess';
+import { DoctorPatientAccess } from './entities/doctor-patient-access.entity';
+import { DoctorPatientAccessModule } from './doctor-patient-access/doctor-patient-access.module';
+import { UserMessagePoints1778100000000 } from './migrations/1778100000000-UserMessagePoints';
+import { DoctorMessagePrice1778110000000 } from './migrations/1778110000000-DoctorMessagePrice';
+import { AiAssistant1778120000000 } from './migrations/1778120000000-AiAssistant';
+import { EnsureDefaultMessagePoints1778100000001 } from './migrations/1778100000001-EnsureDefaultMessagePoints';
+import { PointsModule } from './points/points.module';
+import { AiModule } from './ai/ai.module';
+import { AiConversation } from './entities/ai-conversation.entity';
+import { AiMessage } from './entities/ai-message.entity';
+import { AiUsageLog } from './entities/ai-usage-log.entity';
+import { MessageEmotions1778130000000 } from './migrations/1778130000000-MessageEmotions';
+import { MessageEmotionDislike1778140000000 } from './migrations/1778140000000-MessageEmotionDislike';
+import { MessageEmotion } from './entities/message-emotion.entity';
+import { MessageEmotionsModule } from './message-emotions/message-emotions.module';
+import { PrescriptionMedications1778160000000 } from './migrations/1778160000000-PrescriptionMedications';
+import { PrescriptionImageUrl1778170000000 } from './migrations/1778170000000-PrescriptionImageUrl';
+import { DeviceTokens1778180000000 } from './migrations/1778180000000-DeviceTokens';
+import { DiagnosisDocumentsManyToMany1778190000000 } from './migrations/1778190000000-DiagnosisDocumentsManyToMany';
+import { MedicalRecordAiInsight1778210000000 } from './migrations/1778210000000-MedicalRecordAiInsight';
+import { UserPreferredLocale1778220000000 } from './migrations/1778220000000-UserPreferredLocale';
+import { DeviceToken } from './entities/device-token.entity';
+import { DiagnosisDocument } from './entities/diagnosis-document.entity';
+import { PushNotificationsModule } from './push-notifications/push-notifications.module';
+import { TtsModule } from './tts/tts.module';
+import { SttModule } from './stt/stt.module';
+import { WherebyModule } from './whereby/whereby.module';
+import { VideoCallsModule } from './video-calls/video-calls.module';
+import { VideoCallSession } from './entities/video-call-session.entity';
+import { VideoCallSessions1778230000000 } from './migrations/1778230000000-VideoCallSessions';
+import { AppointmentChatFields1778240000000 } from './migrations/1778240000000-AppointmentChatFields';
+import { AdminRagSources1778250000000 } from './migrations/1778250000000-AdminRagSources';
+import { IntakeExamInstances1778260000000 } from './migrations/1778260000000-IntakeExamInstances';
+import { DoctorCertifications1778270000000 } from './migrations/1778270000000-DoctorCertifications';
+import { Consultations1778280000000 } from './migrations/1778280000000-Consultations';
+import { ConsultationPriceCap1778290000000 } from './migrations/1778290000000-ConsultationPriceCap';
+import { PointsReimbursed1778300000000 } from './migrations/1778300000000-PointsReimbursed';
+import { ConsultationComplaints1778310000000 } from './migrations/1778310000000-ConsultationComplaints';
+import { DoctorPriceEgpCredits1778320000000 } from './migrations/1778320000000-DoctorPriceEgpCredits';
+import { VideoConsultationPrice1778330000000 } from './migrations/1778330000000-VideoConsultationPrice';
+import { AiMessageAttachments1778340000000 } from './migrations/1778340000000-AiMessageAttachments';
+import { PatientMedicalRecordsConsent1778350000000 } from './migrations/1778350000000-PatientMedicalRecordsConsent';
+import { AppointmentAiInsight1778360000000 } from './migrations/1778360000000-AppointmentAiInsight';
+import { PaymentIntentions1778370000000 } from './migrations/1778370000000-PaymentIntentions';
+import { VideoCallDuration1778380000000 } from './migrations/1778380000000-VideoCallDuration';
+import { DoctorBankDetails1778390000000 } from './migrations/1778390000000-DoctorBankDetails';
+import { MedicalRecordBodyPart1778400000000 } from './migrations/1778400000000-MedicalRecordBodyPart';
+import { PaymentIntention } from './entities/payment-intention.entity';
+import { PaymentsModule } from './payments/payments.module';
+import { AdminRagSource } from './entities/admin-rag-source.entity';
+import { Consultation } from './entities/consultation.entity';
+import { ConsultationComplaint } from './entities/consultation-complaint.entity';
+import { MedicalDocumentRequest } from './entities/medical-document-request.entity';
+import { MedicalDocumentRequests1778410000000 } from './migrations/1778410000000-MedicalDocumentRequests';
+import { DiagnosisPrescriptionIntakeLinks1778420000000 } from './migrations/1778420000000-DiagnosisPrescriptionIntakeLinks';
+import { PatientProfileCountry1778430000000 } from './migrations/1778430000000-PatientProfileCountry';
+import { DoctorCountry1778440000000 } from './migrations/1778440000000-DoctorCountry';
+import { PaymentIntentionMarketPricing1778450000000 } from './migrations/1778450000000-PaymentIntentionMarketPricing';
+import { UserEmailVerificationAndPasswordReset1778460000000 } from './migrations/1778460000000-UserEmailVerificationAndPasswordReset';
+import { EmergencyAndGynaecologySpecialities1778470000000 } from './migrations/1778470000000-EmergencyAndGynaecologySpecialities';
+import { ThreelagiCampaignBanners1778480000000 } from './migrations/1778480000000-ThreelagiCampaignBanners';
+import { SpecialityMarketVisibility1778490000000 } from './migrations/1778490000000-SpecialityMarketVisibility';
+import { NutritionistSpeciality1778500000000 } from './migrations/1778500000000-NutritionistSpeciality';
+import { UserNotifications1778510000000 } from './migrations/1778510000000-UserNotifications';
+import { PointPricing } from './entities/point-pricing.entity';
+import { DoctorImmediateCalls1778520000000 } from './migrations/1778520000000-DoctorImmediateCalls';
+import { PointPricing1778530000000 } from './migrations/1778530000000-PointPricing';
+import { DoctorMultipleSpecialities1778540000000 } from './migrations/1778540000000-DoctorMultipleSpecialities';
+import { PointPricingUsdRates1778541000000 } from './migrations/1778541000000-PointPricingUsdRates';
+import { ConsultationPatientCountry1778550000000 } from './migrations/1778550000000-ConsultationPatientCountry';
+import { DoctorFeesAndPaymentFlow1778560000000 } from './migrations/1778560000000-DoctorFeesAndPaymentFlow';
+import { DefaultDoctorFees1778570000000 } from './migrations/1778570000000-DefaultDoctorFees';
+import { PendingChanges1778580000000 } from './migrations/1778580000000-PendingChanges';
+import { AppointmentPatientCountry1778580000000 } from './migrations/1778580000000-AppointmentPatientCountry';
+import { BackfillBookedViaApp1778590000000 } from './migrations/1778590000000-BackfillBookedViaApp';
+import { ContactSubmissions1778600000000 } from './migrations/1778600000000-ContactSubmissions';
+import { DoctorRegistrationRequests1778610000000 } from './migrations/1778610000000-DoctorRegistrationRequests';
+import { DoctorRegistrationRequestCountry1778620000000 } from './migrations/1778620000000-DoctorRegistrationRequestCountry';
+import { AppReviews1778630000000 } from './migrations/1778630000000-AppReviews';
+import { DoctorTagCatalog1778640000000 } from './migrations/1778640000000-DoctorTagCatalog';
+import { DoctorTagCatalogI18n1778650000000 } from './migrations/1778650000000-DoctorTagCatalogI18n';
+import { RefreshTokens1778660000000 } from './migrations/1778660000000-RefreshTokens';
+import { EntSpeciality1778670000000 } from './migrations/1778670000000-EntSpeciality';
+import { DoctorProductTour1778680000000 } from './migrations/1778680000000-DoctorProductTour';
+import { SpecialtyTestAccounts1778690000000 } from './migrations/1778690000000-SpecialtyTestAccounts';
+import { RefreshSpecialtyTestAttachments1778700000000 } from './migrations/1778700000000-RefreshSpecialtyTestAttachments';
+import { DoctorRegistrationClinicLocation1778710000000 } from './migrations/1778710000000-DoctorRegistrationClinicLocation';
+import { SpecialtyTestAttachmentsRealistic1778720000000 } from './migrations/1778720000000-SpecialtyTestAttachmentsRealistic';
+import { DeletedAccounts1778730000000 } from './migrations/1778730000000-DeletedAccounts';
+import { UserLoginStats1778740000000 } from './migrations/1778740000000-UserLoginStats';
+import { DoctorSpecialityChangeRequests1778750000000 } from './migrations/1778750000000-DoctorSpecialityChangeRequests';
+import { PatientRecentVitals1778760000000 } from './migrations/1778760000000-PatientRecentVitals';
+import { DoctorRegistrationRequestPhoto1778770000000 } from './migrations/1778770000000-DoctorRegistrationRequestPhoto';
+import { DoctorRegistrationRequestPrices1778800000000 } from './migrations/1778800000000-DoctorRegistrationRequestPrices';
+import { DoctorWelcomePassword1778810000000 } from './migrations/1778810000000-DoctorWelcomePassword';
+import { Subspecialties1778780000000 } from './migrations/1778780000000-Subspecialties';
+import { DoctorPatientPaymentMethod1778790000000 } from './migrations/1778790000000-DoctorPatientPaymentMethod';
+import { HospitalsAndSurgeries1778830000000 } from './migrations/1778830000000-HospitalsAndSurgeries';
+import { HospitalApprovalLinksAndOverrides1778840000000 } from './migrations/1778840000000-HospitalApprovalLinksAndOverrides';
+import { GastroenterologySpeciality1778820000000 } from './migrations/1778820000000-GastroenterologySpeciality';
+import { SpecialtyTestAccount } from './entities/specialty-test-account.entity';
+import { DeletedAccount } from './entities/deleted-account.entity';
+import { UserNotification } from './entities/user-notification.entity';
+import { ContactSubmission } from './entities/contact-submission.entity';
+import { DoctorRegistrationRequest } from './entities/doctor-registration-request.entity';
+import { DoctorSpecialityChangeRequest } from './entities/doctor-speciality-change-request.entity';
+import { UserLoginStat } from './entities/user-login-stat.entity';
+import { AppReview } from './entities/app-review.entity';
+import { DoctorTagCatalog } from './entities/doctor-tag-catalog.entity';
+import { Subspecialty } from './entities/subspecialty.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { Hospital } from './entities/hospital.entity';
+import { HospitalDoctor } from './entities/hospital-doctor.entity';
+import { HospitalSlotOverride } from './entities/hospital-slot-override.entity';
+import { HospitalOperationSlot } from './entities/hospital-operation-slot.entity';
+import { SurgicalOperation } from './entities/surgical-operation.entity';
+import { SurgeryReservation } from './entities/surgery-reservation.entity';
+import { HospitalsModule } from './hospitals/hospitals.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { MedicalDocumentRequestsModule } from './medical-document-requests/medical-document-requests.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        url: configService.get<string>('DATABASE_URL'),
+        entities: [
+          PointPricing,
+          User,
+          Clinic,
+          Doctor,
+          ClinicJoinRequest,
+          Patient,
+          Appointment,
+          MedicalDocument,
+          Diagnosis,
+          Symptom,
+          Prescription,
+          PrescriptionMedication,
+          PrescriptionTemplate,
+          IntakeTest,
+          IntakeExamAssignment,
+          IntakeExamInstance,
+          PatientProfile,
+          DoctorSchedule,
+          DoctorScheduleOverride,
+          DoctorReview,
+          DoctorSpeciality,
+          Advertisement,
+          Message,
+          DoctorPatientAccess,
+          AiConversation,
+          AiMessage,
+          AiUsageLog,
+          MessageEmotion,
+          DeviceToken,
+          DiagnosisDocument,
+          VideoCallSession,
+          AdminRagSource,
+          Consultation,
+          ConsultationComplaint,
+          PaymentIntention,
+          MedicalDocumentRequest,
+          UserNotification,
+          ContactSubmission,
+          DoctorRegistrationRequest,
+          DoctorSpecialityChangeRequest,
+          UserLoginStat,
+          AppReview,
+          DoctorTagCatalog,
+          Subspecialty,
+          RefreshToken,
+          SpecialtyTestAccount,
+          DeletedAccount,
+          Hospital,
+          HospitalDoctor,
+          HospitalSlotOverride,
+          HospitalOperationSlot,
+          SurgicalOperation,
+          SurgeryReservation,
+        ],
+        synchronize: false,
+        autoLoadEntities: true,
+        migrations: [
+          InitialSchema1777599963712,
+          AddIsPersonalToClinic1777600000001,
+          PrescriptionsAndSettings1777800000000,
+          PrescriptionTemplates1777810000000,
+          AddClinicLogo1777820000000,
+          IntakeTests1777830000000,
+          PatientPortal1777840000000,
+          ScheduleOverrides1777850000000,
+          AdminAndIntakeSimplify1777860000000,
+          PatientPhotoAndIntakeEndpoints1777870000000,
+          DoctorProfileAndApproval1777880000000,
+          DoctorFaqsAndReviews1777890000000,
+          DoctorTags1777900000000,
+          PatientOnboardingIntake1777910000000,
+          AppointmentHideName1777920000000,
+          AppointmentApproval1777930000000,
+          DiagnosisAndSymptoms1777940000000,
+          AddPatientsPhotoUrl1777950000000,
+          AddUsersPhotoUrl1777960000000,
+          MedicalDocumentsTitle1777970000000,
+          NullableDiagnosisDoctor1777980000000,
+          SymptomDoctorId1777990000000,
+          SpecialitiesAndAdvertisements1778000000000,
+          FixSpecialityImagesAndAssignDoctors1778010000000,
+          UpdateSpecialityExpressiveImages1778020000000,
+          BundledSpecialityImages1778030000000,
+          SurgeryAndAlaadocSpecialities1778040000000,
+          RemoveDemoDoctors1778050000000,
+          MessagesTable1778060000000,
+          MessageAttachmentsAndRead1778070000000,
+          MessageEditedAt1778080000000,
+          DoctorPatientAccess1778090000000,
+          UserMessagePoints1778100000000,
+          EnsureDefaultMessagePoints1778100000001,
+          DoctorMessagePrice1778110000000,
+          AiAssistant1778120000000,
+          MessageEmotions1778130000000,
+          MessageEmotionDislike1778140000000,
+          PrescriptionMedications1778160000000,
+          PrescriptionImageUrl1778170000000,
+          DeviceTokens1778180000000,
+          DiagnosisDocumentsManyToMany1778190000000,
+          MedicalRecordAiInsight1778210000000,
+          UserPreferredLocale1778220000000,
+          VideoCallSessions1778230000000,
+          AppointmentChatFields1778240000000,
+          AdminRagSources1778250000000,
+          IntakeExamInstances1778260000000,
+          DoctorCertifications1778270000000,
+          Consultations1778280000000,
+          ConsultationPriceCap1778290000000,
+          PointsReimbursed1778300000000,
+          ConsultationComplaints1778310000000,
+          DoctorPriceEgpCredits1778320000000,
+          VideoConsultationPrice1778330000000,
+          AiMessageAttachments1778340000000,
+          PatientMedicalRecordsConsent1778350000000,
+          AppointmentAiInsight1778360000000,
+          PaymentIntentions1778370000000,
+          VideoCallDuration1778380000000,
+          DoctorBankDetails1778390000000,
+          MedicalRecordBodyPart1778400000000,
+          MedicalDocumentRequests1778410000000,
+          DiagnosisPrescriptionIntakeLinks1778420000000,
+          PatientProfileCountry1778430000000,
+          DoctorCountry1778440000000,
+          PaymentIntentionMarketPricing1778450000000,
+          UserEmailVerificationAndPasswordReset1778460000000,
+          EmergencyAndGynaecologySpecialities1778470000000,
+          ThreelagiCampaignBanners1778480000000,
+          SpecialityMarketVisibility1778490000000,
+          NutritionistSpeciality1778500000000,
+          UserNotifications1778510000000,
+          DoctorImmediateCalls1778520000000,
+          PointPricing1778530000000,
+          DoctorMultipleSpecialities1778540000000,
+          PointPricingUsdRates1778541000000,
+          ConsultationPatientCountry1778550000000,
+          DoctorFeesAndPaymentFlow1778560000000,
+          DefaultDoctorFees1778570000000,
+          PendingChanges1778580000000,
+          AppointmentPatientCountry1778580000000,
+          BackfillBookedViaApp1778590000000,
+          ContactSubmissions1778600000000,
+          DoctorRegistrationRequests1778610000000,
+          DoctorRegistrationRequestCountry1778620000000,
+          AppReviews1778630000000,
+          DoctorTagCatalog1778640000000,
+          DoctorTagCatalogI18n1778650000000,
+          RefreshTokens1778660000000,
+          EntSpeciality1778670000000,
+          DoctorProductTour1778680000000,
+          SpecialtyTestAccounts1778690000000,
+          RefreshSpecialtyTestAttachments1778700000000,
+          DoctorRegistrationClinicLocation1778710000000,
+          SpecialtyTestAttachmentsRealistic1778720000000,
+          DeletedAccounts1778730000000,
+          UserLoginStats1778740000000,
+          DoctorSpecialityChangeRequests1778750000000,
+          PatientRecentVitals1778760000000,
+          DoctorRegistrationRequestPhoto1778770000000,
+          DoctorRegistrationRequestPrices1778800000000,
+          DoctorWelcomePassword1778810000000,
+          Subspecialties1778780000000,
+          DoctorPatientPaymentMethod1778790000000,
+          GastroenterologySpeciality1778820000000,
+          HospitalsAndSurgeries1778830000000,
+          HospitalApprovalLinksAndOverrides1778840000000,
+        ],
+        migrationsRun: true,
+        migrationsTransactionMode: 'each',
+        ssl: {
+          rejectUnauthorized: false,
+        },
+        logging: false,
+      }),
+      inject: [ConfigService],
+    }),
+    AuthModule,
+    ContactModule,
+    DoctorRegistrationRequestsModule,
+    AppReviewsModule,
+    DoctorTagsModule,
+    ClinicsModule,
+    DoctorsModule,
+    DoctorOnboardingModule,
+    JoinRequestsModule,
+    PatientsModule,
+    AppointmentsModule,
+    MedicalDocumentsModule,
+    DiagnosisModule,
+    SymptomsModule,
+    PrescriptionsModule,
+    PrescriptionTemplatesModule,
+    IntakeTestsModule,
+    IntakeExamsModule,
+    SchedulesModule,
+    PatientPortalModule,
+    ConsultationsModule,
+    ComplaintsModule,
+    ReviewsModule,
+    UploadsModule,
+    HealthModule,
+    UsersModule,
+    AdminModule,
+    SpecialitiesModule,
+    AdvertisementsModule,
+    PresenceModule,
+    MessagesModule,
+    DoctorPatientAccessModule,
+    PointsModule,
+    AiModule,
+    MessageEmotionsModule,
+    PushNotificationsModule,
+    NotificationsModule,
+    TtsModule,
+    SttModule,
+    WherebyModule,
+    VideoCallsModule,
+    PaymentsModule,
+    MedicalDocumentRequestsModule,
+    HospitalsModule,
+  ],
+})
+export class AppModule {}

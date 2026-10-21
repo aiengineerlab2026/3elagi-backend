@@ -1,0 +1,55 @@
+import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { DiagnosisService } from './diagnosis.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { resolveApiLocale } from '../common/resolve-api-locale';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { CreatePatientDiagnosisDto } from './dto/create-patient-diagnosis.dto';
+import { AddPatientSymptomDto } from './dto/add-patient-symptom.dto';
+
+@Controller('patient/diagnoses')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class PatientDiagnosisController {
+  constructor(private readonly service: DiagnosisService) {}
+
+  @Get()
+  @Roles('patient', 'doctor')
+  findMine(@Request() req) {
+    return this.service.findForPatientUser(req.user.id);
+  }
+
+  /** Diagnoses are doctor-only; patients cannot create them. */
+  @Post()
+  @Roles('doctor')
+  create(@Body() dto: CreatePatientDiagnosisDto, @Request() req) {
+    return this.service.createForPatientUser(req.user.id, dto);
+  }
+
+  @Get(':id')
+  @Roles('patient', 'doctor')
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.service.findOneForPatientUser(id, req.user.id);
+  }
+
+  /** Symptom edits on diagnoses are doctor-only. */
+  @Post(':id/symptoms')
+  @Roles('doctor')
+  addSymptom(
+    @Param('id') id: string,
+    @Body() dto: AddPatientSymptomDto,
+    @Request() req,
+  ) {
+    return this.service.addSymptomForPatientUser(id, req.user.id, dto.desc);
+  }
+
+  @Post(':id/generate-insight')
+  @Roles('patient', 'doctor')
+  generateInsight(
+    @Param('id') id: string,
+    @Query('lang') lang: 'ar' | 'en' | undefined,
+    @Request() req,
+  ) {
+    const outputLang = resolveApiLocale(lang);
+    return this.service.generateInsightForPatientUser(id, req.user.id, outputLang);
+  }
+}
