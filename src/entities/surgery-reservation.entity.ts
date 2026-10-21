@@ -19,6 +19,8 @@ export type SurgeryReservationStatus =
   | 'rejected'
   | 'cancelled';
 
+export type PartyDecision = 'pending' | 'approved' | 'rejected';
+
 /** Statuses that hold the slot (a partial unique index enforces one per slot). */
 export const ACTIVE_RESERVATION_STATUSES: SurgeryReservationStatus[] = [
   'pending',
@@ -66,8 +68,15 @@ export class SurgeryReservation {
   @Column({ type: 'time' })
   time: string;
 
+  /** Overall status, derived from both decisions (HospitalsService.decideAs). */
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status: SurgeryReservationStatus;
+
+  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  hospital_status: PartyDecision;
+
+  @Column({ type: 'varchar', length: 16, default: 'pending' })
+  doctor_status: PartyDecision;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

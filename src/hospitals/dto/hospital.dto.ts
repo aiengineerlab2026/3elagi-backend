@@ -24,6 +24,19 @@ export class CreateSurgicalOperationDto {
   @IsOptional() @IsBoolean() is_active?: boolean;
 }
 
+/** English letters, digits and common punctuation only. */
+export const ENGLISH_NAME = /^[A-Za-z0-9 ()&/,.'+-]+$/;
+
+/** Hospital adds a surgery that isn't in the catalog — English name only. */
+export class CreateHospitalOperationDto {
+  @IsUUID() speciality_id: string;
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  @Matches(ENGLISH_NAME, { message: 'Surgery name must be in English' })
+  name_en: string;
+}
+
 export class UpdateSurgicalOperationDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name_en?: string;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name_ar?: string;
@@ -55,12 +68,17 @@ export class CreateHospitalDto {
   @IsOptional() @IsBoolean() is_active?: boolean;
 }
 
+export class SetSurgeryDoctorsDto {
+  @IsArray() @IsUUID('all', { each: true }) doctor_ids: string[];
+}
+
 export class InviteDoctorDto {
   @IsUUID() doctor_id: string;
 }
 
 export class HospitalOverrideInput {
   @IsOptional() @IsUUID() operation_id?: string | null;
+  @IsOptional() @IsUUID() doctor_id?: string | null;
   @Matches(DATE) start_date: string;
   @Matches(DATE) end_date: string;
   @IsBoolean() is_closed: boolean;
@@ -79,10 +97,30 @@ export class ReplaceHospitalOverridesDto {
 
 export class HospitalSlotInput {
   @IsUUID() operation_id: string;
-  @Type(() => Number) @IsInt() day_of_week: number;
+  @IsUUID() doctor_id: string;
+  @IsOptional() @Type(() => Number) @IsInt() day_of_week?: number;
+  @IsOptional() @Matches(DATE) date?: string;
   @Matches(TIME) start_time: string;
   @Matches(TIME) end_time: string;
   @Type(() => Number) @IsInt() slot_minutes: number;
+}
+
+/** A doctor's proposed window at a hospital (the doctor is the caller). */
+export class DoctorSlotInput {
+  @IsUUID() operation_id: string;
+  /** Either a weekday (repeating) or a specific date (one-off). */
+  @IsOptional() @Type(() => Number) @IsInt() day_of_week?: number;
+  @IsOptional() @Matches(DATE) date?: string;
+  @Matches(TIME) start_time: string;
+  @Matches(TIME) end_time: string;
+  @Type(() => Number) @IsInt() slot_minutes: number;
+}
+
+export class ProposeSlotsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DoctorSlotInput)
+  items: DoctorSlotInput[];
 }
 
 export class ReplaceHospitalSlotsDto {
@@ -99,6 +137,11 @@ export class CreateSurgeryReservationDto {
   @Matches(DATE) date: string;
   @Matches(TIME) time: string;
   @IsOptional() @IsString() @MaxLength(1000) notes?: string;
+}
+
+export class DecideSlotsDto {
+  @IsArray() @IsUUID('all', { each: true }) ids: string[];
+  @IsIn(['approved', 'rejected']) status: 'approved' | 'rejected';
 }
 
 export class RespondLinkDto {

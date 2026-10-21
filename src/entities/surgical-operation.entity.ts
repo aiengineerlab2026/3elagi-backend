@@ -9,8 +9,9 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { DoctorSpeciality } from './doctor-speciality.entity';
+import { Hospital } from './hospital.entity';
 
-/** Admin-managed catalog of predefined surgical operations, per speciality. */
+/** Surgical operations per speciality: the admin catalog plus hospitals' custom ones. */
 @Entity('surgical_operations')
 @Index('IDX_surgical_operations_speciality', ['speciality_id'])
 export class SurgicalOperation {
@@ -32,6 +33,14 @@ export class SurgicalOperation {
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
+
+  /** Set = a custom surgery added by this hospital; null = predefined catalog. */
+  @Column({ type: 'uuid', nullable: true })
+  hospital_id: string | null;
+
+  @ManyToOne(() => Hospital, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'hospital_id' })
+  hospital?: Hospital | null;
 
   @CreateDateColumn()
   created_at: Date;

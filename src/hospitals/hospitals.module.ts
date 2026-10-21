@@ -4,6 +4,7 @@ import { HospitalsController } from './hospitals.controller';
 import { HospitalsService } from './hospitals.service';
 import { Hospital } from '../entities/hospital.entity';
 import { HospitalDoctor } from '../entities/hospital-doctor.entity';
+import { HospitalSurgery } from '../entities/hospital-surgery.entity';
 import { HospitalSlotOverride } from '../entities/hospital-slot-override.entity';
 import { User } from '../entities/user.entity';
 import { PushNotificationsModule } from '../push-notifications/push-notifications.module';
@@ -19,6 +20,7 @@ import { DoctorSpeciality } from '../entities/doctor-speciality.entity';
     TypeOrmModule.forFeature([
       Hospital,
       HospitalDoctor,
+      HospitalSurgery,
       HospitalSlotOverride,
       User,
       HospitalOperationSlot,

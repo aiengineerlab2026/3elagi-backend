@@ -16,7 +16,7 @@ import { AiChatService } from './ai-chat.service';
 /** History endpoints remain for bootstrap; chat uses Socket.io (ai:message:send). */
 @Controller('ai')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('patient', 'doctor', 'admin', 'clinic_admin')
+@Roles('patient', 'doctor', 'admin', 'clinic_admin', 'hospital')
 export class AiController {
   constructor(private readonly aiChat: AiChatService) {}
 

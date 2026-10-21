@@ -20,13 +20,17 @@ import { HospitalsService } from './hospitals.service';
 import {
   AdminHospitalDto,
   CreateHospitalDto,
+  CreateHospitalOperationDto,
   CreateSurgeryReservationDto,
   CreateSurgicalOperationDto,
+  DecideSlotsDto,
   DecideReservationDto,
   InviteDoctorDto,
+  ProposeSlotsDto,
   ReplaceHospitalOverridesDto,
   ReplaceHospitalSlotsDto,
   RespondLinkDto,
+  SetSurgeryDoctorsDto,
   UpdateHospitalDto,
   UpdateSurgicalOperationDto,
 } from './dto/hospital.dto';
@@ -61,13 +65,15 @@ export class HospitalsController {
   }
 
   @Public()
-  @Get('hospitals/:id/operations/:operationId/slots')
-  slots(
+  @Get('hospitals/:id/operations/:operationId/doctors/:doctorId/availability')
+  availability(
     @Param('id', uuid) id: string,
     @Param('operationId', uuid) operationId: string,
-    @Query('date') date: string,
+    @Param('doctorId', uuid) doctorId: string,
+    @Query('from') from?: string,
+    @Query('days') days?: string,
   ) {
-    return this.service.availableSlots(id, operationId, date);
+    return this.service.availability(id, operationId, doctorId, from, Number(days) || 14);
   }
 
   // ── Admin ───────────────────────────────────────────────────────────
@@ -151,6 +157,40 @@ export class HospitalsController {
   }
 
   @Roles('hospital')
+  @Patch('hospital/me/slots')
+  decideSlots(@Body() dto: DecideSlotsDto, @Request() req) {
+    return this.service.decideSlots(req.user.id, dto.ids, dto.status);
+  }
+
+  @Roles('hospital')
+  @Get('hospital/me/operations')
+  hospitalOperations(@Request() req) {
+    return this.service.hospitalOperations(req.user.id);
+  }
+
+  @Roles('hospital')
+  @Post('hospital/me/operations')
+  createHospitalOperation(@Body() dto: CreateHospitalOperationDto, @Request() req) {
+    return this.service.createHospitalOperation(req.user.id, dto);
+  }
+
+  @Roles('hospital')
+  @Put('hospital/me/surgeries/:operationId')
+  setSurgery(
+    @Param('operationId', uuid) operationId: string,
+    @Body() dto: SetSurgeryDoctorsDto,
+    @Request() req,
+  ) {
+    return this.service.setSurgery(req.user.id, operationId, dto.doctor_ids);
+  }
+
+  @Roles('hospital')
+  @Delete('hospital/me/surgeries/:operationId')
+  removeSurgery(@Param('operationId', uuid) operationId: string, @Request() req) {
+    return this.service.removeSurgery(req.user.id, operationId);
+  }
+
+  @Roles('hospital')
   @Put('hospital/me/overrides')
   replaceMyOverrides(@Body() dto: ReplaceHospitalOverridesDto, @Request() req) {
     return this.service.replaceMyOverrides(req.user.id, dto.items);
@@ -196,9 +236,51 @@ export class HospitalsController {
   }
 
   @Roles('doctor')
+  @Get('doctor/hospitals/:hospitalId/surgeries')
+  doctorSurgeries(@Param('hospitalId', uuid) hospitalId: string, @Request() req) {
+    return this.service.doctorSurgeries(req.user.id, hospitalId);
+  }
+
+  @Roles('doctor')
+  @Get('doctor/hospitals/:hospitalId/slots')
+  doctorSlots(@Param('hospitalId', uuid) hospitalId: string, @Request() req) {
+    return this.service.doctorSlots(req.user.id, hospitalId);
+  }
+
+  @Roles('doctor')
+  @Put('doctor/hospitals/:hospitalId/slots')
+  proposeSlots(
+    @Param('hospitalId', uuid) hospitalId: string,
+    @Body() dto: ProposeSlotsDto,
+    @Request() req,
+  ) {
+    return this.service.proposeSlots(req.user.id, hospitalId, dto.items);
+  }
+
+  @Roles('doctor')
+  @Delete('doctor/hospitals/:hospitalId/slots/:id')
+  deleteProposal(
+    @Param('hospitalId', uuid) hospitalId: string,
+    @Param('id', uuid) id: string,
+    @Request() req,
+  ) {
+    return this.service.deleteProposal(req.user.id, hospitalId, id);
+  }
+
+  @Roles('doctor')
   @Get('doctor/surgery-reservations')
   doctorReservations(@Request() req) {
     return this.service.doctorReservations(req.user.id);
+  }
+
+  @Roles('doctor')
+  @Patch('doctor/surgery-reservations/:id')
+  doctorDecide(
+    @Param('id', uuid) id: string,
+    @Body() dto: DecideReservationDto,
+    @Request() req,
+  ) {
+    return this.service.doctorDecide(req.user.id, id, dto.status);
   }
 
   // ── Patient ─────────────────────────────────────────────────────────

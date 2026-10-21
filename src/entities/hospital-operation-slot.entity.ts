@@ -9,10 +9,13 @@ import {
 } from 'typeorm';
 import { Hospital } from './hospital.entity';
 import { SurgicalOperation } from './surgical-operation.entity';
+import { Doctor } from './doctor.entity';
+import type { ApprovalStatus } from './doctor.entity';
 
 /**
- * Weekly availability window for one operation at one hospital — same shape as
- * doctor_schedules. The operations a hospital supports are the ones with rows here.
+ * Weekly availability window for one doctor doing one operation at one hospital —
+ * same shape as doctor_schedules. The operations a hospital supports are the ones
+ * with rows here.
  */
 @Entity('hospital_operation_slots')
 @Index('IDX_hospital_operation_slots_hospital_op', ['hospital_id', 'operation_id'])
@@ -34,8 +37,19 @@ export class HospitalOperationSlot {
   @JoinColumn({ name: 'operation_id' })
   operation?: SurgicalOperation;
 
+  @Column('uuid')
+  doctor_id: string;
+
+  @ManyToOne(() => Doctor, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'doctor_id' })
+  doctor?: Doctor;
+
   @Column({ type: 'smallint' })
   day_of_week: number;
+
+  /** Set = one-off window on this date only; null = repeats every day_of_week. */
+  @Column({ type: 'date', nullable: true })
+  date: string | null;
 
   @Column({ type: 'time' })
   start_time: string;
@@ -45,6 +59,13 @@ export class HospitalOperationSlot {
 
   @Column({ type: 'int', default: 60 })
   slot_minutes: number;
+
+  /** Only approved windows are bookable; doctor proposals start pending. */
+  @Column({ type: 'varchar', length: 16, default: 'approved' })
+  status: ApprovalStatus;
+
+  @Column({ type: 'varchar', length: 16, default: 'hospital' })
+  created_by: 'hospital' | 'doctor';
 
   @CreateDateColumn()
   created_at: Date;

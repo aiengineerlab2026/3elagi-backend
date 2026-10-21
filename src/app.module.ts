@@ -185,6 +185,13 @@ import { Subspecialties1778780000000 } from './migrations/1778780000000-Subspeci
 import { DoctorPatientPaymentMethod1778790000000 } from './migrations/1778790000000-DoctorPatientPaymentMethod';
 import { HospitalsAndSurgeries1778830000000 } from './migrations/1778830000000-HospitalsAndSurgeries';
 import { HospitalApprovalLinksAndOverrides1778840000000 } from './migrations/1778840000000-HospitalApprovalLinksAndOverrides';
+import { HospitalSlotsPerDoctor1778850000000 } from './migrations/1778850000000-HospitalSlotsPerDoctor';
+import { HospitalSlotProposals1778860000000 } from './migrations/1778860000000-HospitalSlotProposals';
+import { HospitalSlotDates1778870000000 } from './migrations/1778870000000-HospitalSlotDates';
+import { HospitalSurgeries1778880000000 } from './migrations/1778880000000-HospitalSurgeries';
+import { SeedSurgicalOperations1778890000000 } from './migrations/1778890000000-SeedSurgicalOperations';
+import { HospitalCustomOperations1778900000000 } from './migrations/1778900000000-HospitalCustomOperations';
+import { ReservationDualApproval1778910000000 } from './migrations/1778910000000-ReservationDualApproval';
 import { GastroenterologySpeciality1778820000000 } from './migrations/1778820000000-GastroenterologySpeciality';
 import { SpecialtyTestAccount } from './entities/specialty-test-account.entity';
 import { DeletedAccount } from './entities/deleted-account.entity';
@@ -199,6 +206,7 @@ import { Subspecialty } from './entities/subspecialty.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { Hospital } from './entities/hospital.entity';
 import { HospitalDoctor } from './entities/hospital-doctor.entity';
+import { HospitalSurgery } from './entities/hospital-surgery.entity';
 import { HospitalSlotOverride } from './entities/hospital-slot-override.entity';
 import { HospitalOperationSlot } from './entities/hospital-operation-slot.entity';
 import { SurgicalOperation } from './entities/surgical-operation.entity';
@@ -265,6 +273,7 @@ import { MedicalDocumentRequestsModule } from './medical-document-requests/medic
           DeletedAccount,
           Hospital,
           HospitalDoctor,
+          HospitalSurgery,
           HospitalSlotOverride,
           HospitalOperationSlot,
           SurgicalOperation,
@@ -381,6 +390,13 @@ import { MedicalDocumentRequestsModule } from './medical-document-requests/medic
           GastroenterologySpeciality1778820000000,
           HospitalsAndSurgeries1778830000000,
           HospitalApprovalLinksAndOverrides1778840000000,
+          HospitalSlotsPerDoctor1778850000000,
+          HospitalSlotProposals1778860000000,
+          HospitalSlotDates1778870000000,
+          HospitalSurgeries1778880000000,
+          SeedSurgicalOperations1778890000000,
+          HospitalCustomOperations1778900000000,
+          ReservationDualApproval1778910000000,
         ],
         migrationsRun: true,
         migrationsTransactionMode: 'each',

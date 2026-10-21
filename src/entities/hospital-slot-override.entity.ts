@@ -9,10 +9,11 @@ import {
 } from 'typeorm';
 import { Hospital } from './hospital.entity';
 import { SurgicalOperation } from './surgical-operation.entity';
+import { Doctor } from './doctor.entity';
 
 /**
  * Date exception for hospital slots — same idea as doctor_schedule_overrides.
- * operation_id null = applies to every operation (e.g. a hospital holiday).
+ * operation_id / doctor_id null = applies to every operation / doctor (e.g. a hospital holiday).
  */
 @Entity('hospital_slot_overrides')
 @Index('IDX_hospital_slot_overrides_dates', ['hospital_id', 'start_date', 'end_date'])
@@ -33,6 +34,13 @@ export class HospitalSlotOverride {
   @ManyToOne(() => SurgicalOperation, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'operation_id' })
   operation?: SurgicalOperation | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  doctor_id: string | null;
+
+  @ManyToOne(() => Doctor, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'doctor_id' })
+  doctor?: Doctor | null;
 
   @Column({ type: 'date' })
   start_date: string;
